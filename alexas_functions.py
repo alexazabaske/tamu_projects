@@ -375,11 +375,15 @@ def extract_region(data, blat, tlat, llon, rlon, mean='no', skipna1=True):
     """
     
     region = data.loc[dict( lat=slice(blat, tlat), lon=slice(llon, rlon) )]
-
+    
+    ## This take the spatial mean with the assumption of equal areas per latlon box.
+    ## if averaging over large span of latitude, cosine weights should be applied based on latitude 
+    ## (see alexas_functions.zonal_avg)
     if mean=='yes':
         region_mean_value = region.mean(dim=['lat','lon'], skipna=skipna1)
         return region_mean_value
     
+    ## return the dataset trimmed to the desire region. no averaging or other changes made
     else:
         return region
   
