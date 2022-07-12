@@ -28,25 +28,26 @@ nn34 = [-5, 5, 190, 240]
 #####################################################################################################################
 #####################################################################################################################
 def list_my_functions():
-    print('the available functions are: ')	
+    print('the available functions are: ')
     print('list_my_functions')
     print('test_function')
     print('get_filename')
+    print('get_CMIP_name_list')
+    print('set_new_time_variable')
     print('get_landsea_mask')
     print('extract_region')
-    print('cc_ev')
     print('mask_out_regions') #old name 'make_mask'
     print('reshape')
     print('get_PC_components')
+    print('cc_ev')
     print('dump_into_pickle')
     print('open_pickle_data')
+    print('uniform_coords')
     print('zonal_avg')
     print('Fourier_Analysis')
-    print('get_CMIP_name_list')
-    print('set_new_time_variable')
-    print(':end of list.')
 
-    ### TEST
+    
+    print(':end of list.')
 
 #####################################################################################################################
 #####################################################################################################################
@@ -179,10 +180,146 @@ def get_filename(gen, var, exp='historical', name=None, r=1, i=1, p=1, f=1, year
     
     return fullfilename
 
+
+##########################################################################################################################
+##########################################################################################################################
+##########################################################################################################################
+def get_CMIP_name_list(gen, var_list, exp_list, root='D:\\CMIP_DATA'):
+   
+    """ PURPOSE: Get a list of CMIP5 or CMIP6 model names that there is data available for. 
+        This function returns a list of model names for which data is available for all the 
+        inputted variables and experiements. 
+        
+        gen (str): 'CMIP5' or 'CMIP6'
+        var_list (list of str): list of variables ('tas', 'ts', 'psl', 'pr', etc.)
+        exp_list (list of str): list of experiments ('historical', 'rcp85', 'ssp585')
+        root (str): the directory path to the CMIP data inventory excel file
+        
+        return Name_List (list of str) 
+        """
+    
+    ## open excel file of inventory lists for CMIP5 or CMIP6 data
+    df = pd.read_excel (f'{root}\\data_inventory_{gen}_forpython.xlsx')
+    df = df.set_index('Model_Name')
+    
+    ## the following four lines create a list of length 1 if only one var and/or exp was given
+    if type(exp_list)==str:
+        exp_list = [exp_list]    
+    if type(var_list)==str:
+        var_list = [var_list]  
+    
+    ## initialize the Name_List (NL) 
+    NL=np.empty(0)
+    
+    ## loop through all combinations of variables and experiments 
+    for i in range(len(exp_list)):
+        for j in range(len(var_list)):
+            
+            ## get inventory for that specific variable in that experiment
+            col_name=f'{var_list[j]}_{exp_list[i]}'
+            mname = df[col_name].index.values
+            inventory = df[col_name].values
+
+            ## keep ONLY the model names that are marked with an 'x', meaning the data is available
+            NL_ij = np.array(mname[inventory=='x'])
+
+            ## add the model names to the list
+            NL = np.append(NL, NL_ij)
+    
+    ## get all the model names, and the number of times each model has the data available
+    NL_un, NL_counts = np.unique(NL, return_counts=True)
+    
+    ## This line keeps only the model names that had the maximum number of occurances
+    ## in other words, it keeps the model names that are available across all inputted vars and exp
+    Name_List = NL_un[NL_counts==np.max(NL_counts)]
+    
+    return Name_List
+
+##########################################################################################################################
+##########################################################################################################################
+##########################################################################################################################
+def set_new_time_variable(da_, gen, exp='historical'):
+    """
+    PURPOSE: create a uniform datetime index for gridded monthly CMIP model output. 
+    This code converts them all to numpy.datetime64 type of datetimes. It also utilizes
+    builtin datetime function and pandas datatime. This is to deal with the various types of 
+    datetime objects that appear in the CMIP output files. 
+    This code lines the datetime indices to the correct years for their respective experiement,
+    and cuts off projections at the year 2100.
+    
+    da_ (xr.data_set): the xarray dataset loaded from the cmip model data
+    gen (str): 'CMIP5' or 'CMIP6'
+    exp (str): the cmip experiment name
+    """
+
+    ### DETERMINE THE START AND END YEAR AND MONTHS BASED ON THE INPUT DATA 
+    
+    try: ## this first try works for most datetime objects to extract the year and month
+        start_year = da_.time.values[0].year
+        start_month = da_.time.values[0].month
+    except: ##try to convert the unknown object to a pd datetime object to extract the year and month
+        start_year = pd.to_datetime(da_.time.values[0]).year
+        start_month = pd.to_datetime(da_.time.values[0]).month
+    
+    
+    ### HISTORICAL 
+    ## if the experiment is a CMIP5 or CMIP6 era historical simulation
+    if exp=='historical':
+        try: ## similar try and except to the above scenario
+            end_year = da_.time.values[-1].year
+            end_month = da_.time.values[-1].month
+        except:
+            end_year = pd.to_datetime(da_.time.values[-1]).year
+            end_month = pd.to_datetime(da_.time.values[-1]).month
+            
+        ## some CMIP5 and CMIP6 historical simulations have been extended.
+        ## This code snips off the extention to line up with the future projection 
+        if end_year > 2005 and gen=='CMIP5':
+            end_year = 2005
+            end_month =12
+            
+        if end_year > 2014 and gen=='CMIP6':
+            end_year = 2014
+            end_month =12
+    
+    ### PROJECTION
+    ## if the experiment is a future emission scenario simulation, such as rcp for v5 and ssp for v6 ,
+    ## cut off datetimes to December 2099. The extended simulations tend to behave strangely... 
+    elif exp[:3]=='rcp' or exp[:3]=='ssp': ## the prefix for available future simulation labels 
+        end_year = 2099
+        end_month = 12    
+    
+    
+    ## INITIALIZE the timestamps for the new datetime object
+    ts1 = datetime.datetime(start_year, start_month, 15, 12, 0, 0)
+    tsE = datetime.datetime(end_year, end_month, 15, 12, 0, 0)
+    
+    print(exp, ts1, tsE)
+    
+    ## create an array of incremental monthly datetime objects, from start year through the length of the 
+    ## original monthly time series 
+    all_times = [ts1 + relativedelta(months=a_month) for a_month in range(len(da_.time))]
+    
+    ## set the time variable in the xarray dataset to the new time series
+    da_['time']=all_times
+    
+    ## slice the entire xarray dataset to the standard start and end years,months 
+    da_ = da_.sel(time=slice(ts1, tsE))
+
+    ## convert the datetime objects into numpy.datetime64 objects if they aren't already
+    if type(da_['time'].values[0]) != type(np.datetime64(all_times[0])):
+        da_['time'] =  [np.datetime64(da_['time'].values[i]) for i in range(len(da_.time))] 
+        ## this list comprehension converts each datetime.datetime into a np.datetime64
+    
+    ## return the entire xarray dataset, with the updated and trimmed time series index
+    return da_
+
+
+
 #####################################################################################################################
 #####################################################################################################################
 #####################################################################################################################
-def get_landsea_mask(all_percents=None, perc_val=100, mtype='land', nn='yes'):
+def get_landsea_mask(all_percents, perc_val=100, mtype='land', nn='yes'):
     
     """all_percents: the 2-D numpy array of percent ocean at each grid point,
         calculated by the "calculate_percent_ocean" function
@@ -245,16 +382,7 @@ def extract_region(data, blat, tlat, llon, rlon, mean='no', skipna1=True):
     
     else:
         return region
-    
-#####################################################################################################################
-#####################################################################################################################
-#####################################################################################################################
-def cc_ev(data1, data2):
-
-    cc = np.corrcoef(data1, data2)[1,0]
-    ev = cc **2    
-
-    return [cc, ev]
+  
    
 #####################################################################################################################
 #####################################################################################################################
@@ -484,7 +612,16 @@ def get_PC_components(data, number_of_PCs, opt='grid'):
         elif opt=='all': 
             return list_of_PC_grid, list_of_PC_ts, (pca.explained_variance_ratio_ *100)[0:number_of_PCs]
     #########################################################
-          
+
+#####################################################################################################################
+#####################################################################################################################
+#####################################################################################################################
+def cc_ev(data1, data2):
+
+    cc = np.corrcoef(data1, data2)[1,0]
+    ev = cc **2    
+
+    return [cc, ev]          
 #####################################################################################################################
 #####################################################################################################################
 #####################################################################################################################
@@ -601,139 +738,6 @@ def Fourier_Analysis(diff):
     fourlist = [amp, pshr, pshd, pshdo, ao, a1, b1]
     
     return np.array(fourlist)
-
-##########################################################################################################################
-##########################################################################################################################
-##########################################################################################################################
-def get_CMIP_name_list(gen, var_list, exp_list, root='D:\\CMIP_DATA'):
-   
-    """ PURPOSE: Get a list of CMIP5 or CMIP6 model names that there is data available for. 
-        This function returns a list of model names for which data is available for all the 
-        inputted variables and experiements. 
-        
-        gen (str): 'CMIP5' or 'CMIP6'
-        var_list (list of str): list of variables ('tas', 'ts', 'psl', 'pr', etc.)
-        exp_list (list of str): list of experiments ('historical', 'rcp85', 'ssp585')
-        root (str): the directory path to the CMIP data inventory excel file
-        
-        return Name_List (list of str) 
-        """
-    
-    ## open excel file of inventory lists for CMIP5 or CMIP6 data
-    df = pd.read_excel (f'{root}\\data_inventory_{gen}_forpython.xlsx')
-    df = df.set_index('Model_Name')
-    
-    ## the following four lines create a list of length 1 if only one var and/or exp was given
-    if type(exp_list)==str:
-        exp_list = [exp_list]    
-    if type(var_list)==str:
-        var_list = [var_list]  
-    
-    ## initialize the Name_List (NL) 
-    NL=np.empty(0)
-    
-    ## loop through all combinations of variables and experiments 
-    for i in range(len(exp_list)):
-        for j in range(len(var_list)):
-            
-            ## get inventory for that specific variable in that experiment
-            col_name=f'{var_list[j]}_{exp_list[i]}'
-            mname = df[col_name].index.values
-            inventory = df[col_name].values
-
-            ## keep ONLY the model names that are marked with an 'x', meaning the data is available
-            NL_ij = np.array(mname[inventory=='x'])
-
-            ## add the model names to the list
-            NL = np.append(NL, NL_ij)
-    
-    ## get all the model names, and the number of times each model has the data available
-    NL_un, NL_counts = np.unique(NL, return_counts=True)
-    
-    ## This line keeps only the model names that had the maximum number of occurances
-    ## in other words, it keeps the model names that are available across all inputted vars and exp
-    Name_List = NL_un[NL_counts==np.max(NL_counts)]
-    
-    return Name_List
-
-##########################################################################################################################
-##########################################################################################################################
-##########################################################################################################################
-def set_new_time_variable(da_, gen, exp='historical'):
-    """
-    PURPOSE: create a uniform datetime index for gridded monthly CMIP model output. 
-    This code converts them all to numpy.datetime64 type of datetimes. It also utilizes
-    builtin datetime function and pandas datatime. This is to deal with the various types of 
-    datetime objects that appear in the CMIP output files. 
-    This code lines the datetime indices to the correct years for their respective experiement,
-    and cuts off projections at the year 2100.
-    
-    da_ (xr.data_set): the xarray dataset loaded from the cmip model data
-    gen (str): 'CMIP5' or 'CMIP6'
-    exp (str): the cmip experiment name
-    """
-
-    ### DETERMINE THE START AND END YEAR AND MONTHS BASED ON THE INPUT DATA 
-    
-    try: ## this first try works for most datetime objects to extract the year and month
-        start_year = da_.time.values[0].year
-        start_month = da_.time.values[0].month
-    except: ##try to convert the unknown object to a pd datetime object to extract the year and month
-        start_year = pd.to_datetime(da_.time.values[0]).year
-        start_month = pd.to_datetime(da_.time.values[0]).month
-    
-    
-    ### HISTORICAL 
-    ## if the experiment is a CMIP5 or CMIP6 era historical simulation
-    if exp=='historical':
-        try: ## similar try and except to the above scenario
-            end_year = da_.time.values[-1].year
-            end_month = da_.time.values[-1].month
-        except:
-            end_year = pd.to_datetime(da_.time.values[-1]).year
-            end_month = pd.to_datetime(da_.time.values[-1]).month
-            
-        ## some CMIP5 and CMIP6 historical simulations have been extended.
-        ## This code snips off the extention to line up with the future projection 
-        if end_year > 2005 and gen=='CMIP5':
-            end_year = 2005
-            end_month =12
-            
-        if end_year > 2014 and gen=='CMIP6':
-            end_year = 2014
-            end_month =12
-    
-    ### PROJECTION
-    ## if the experiment is a future emission scenario simulation, such as rcp for v5 and ssp for v6 ,
-    ## cut off datetimes to December 2099. The extended simulations tend to behave strangely... 
-    elif exp[:3]=='rcp' or exp[:3]=='ssp': ## the prefix for available future simulation labels 
-        end_year = 2099
-        end_month = 12    
-    
-    
-    ## INITIALIZE the timestamps for the new datetime object
-    ts1 = datetime.datetime(start_year, start_month, 15, 12, 0, 0)
-    tsE = datetime.datetime(end_year, end_month, 15, 12, 0, 0)
-    
-    print(exp, ts1, tsE)
-    
-    ## create an array of incremental monthly datetime objects, from start year through the length of the 
-    ## original monthly time series 
-    all_times = [ts1 + relativedelta(months=a_month) for a_month in range(len(da_.time))]
-    
-    ## set the time variable in the xarray dataset to the new time series
-    da_['time']=all_times
-    
-    ## slice the entire xarray dataset to the standard start and end years,months 
-    da_ = da_.sel(time=slice(ts1, tsE))
-
-    ## convert the datetime objects into numpy.datetime64 objects if they aren't already
-    if type(da_['time'].values[0]) != type(np.datetime64(all_times[0])):
-        da_['time'] =  [np.datetime64(da_['time'].values[i]) for i in range(len(da_.time))] 
-        ## this list comprehension converts each datetime.datetime into a np.datetime64
-    
-    ## return the entire xarray dataset, with the updated and trimmed time series index
-    return da_
 
 ##########################################################################################################################
 ##########################################################################################################################
