@@ -45,7 +45,8 @@ def list_my_functions():
     print('uniform_coords')
     print('zonal_avg')
     print('Fourier_Analysis')
-
+    print('search_box')
+    print('calc_hits_num')
     
     print(':end of list.')
 
@@ -742,6 +743,142 @@ def Fourier_Analysis(diff):
     fourlist = [amp, pshr, pshd, pshdo, ao, a1, b1]
     
     return np.array(fourlist)
+
+##########################################################################################################################
+##########################################################################################################################
+##########################################################################################################################
+def search_box(data, index_seas, static_box, PCTS, ev_index, latslice=slice(-20,20), lonslice=slice(100,300), 
+               latincr_rng = range(2,12,2), lonincr_rng = range(10,44,4), minsize=180):
+    """PURPOSE:
+    data: an xarray DataArray that has already been resampled to SEASONAL means
+    use data.resample(time="Q-NOV").mean() for DJF, MAM, etc. , before sending to function 
+    staticbox (list([])): list of static box or boxes. A single static box = list(tlat, blat, rlon, llon)
+    latslice (slice): latitude
+    lonslice(slice):
+    latincr_rng (range)
+    lonincr_rng (range) """
+
+    seas_names = ['summer', 'fall', 'winter', 'spring']
+    season_nums = np.array([8,11,2,5]) #JJA, SON, DJF, MMA
+
+    ## initialize a lat list and a lon list of 4 empty numpy arrays,
+    ## to store the central lat and lon points of potential boxes (greater corr than nn34)
+    cenlons = [np.zeros(0), np.zeros(0), np.zeros(0), np.zeros(0)]
+    cenlats = [np.zeros(0), np.zeros(0), np.zeros(0), np.zeros(0)]
+    
+    ## given the bounds of latitude and longitudes, get array of lat and lon values from the input data 
+    lator_rng = data.sel(lat=latslice).lat.values
+    lonor_rng= data.sel(lon=lonslice).lon.values
+
+    ## the first and second for loops will loop through the SIZE (number of increments) of the box in both dimensions
+    ## the third and fourth for loop will loop through the ORIGIN (central lat and lon) of the box in each box size
+
+    #### ---- 1) BEGIN LOOP THROUGH LAT SIZE 
+    for latincr in latincr_rng:
+
+        print(' ')
+        print('lat increment: ', latincr)
+        print('lon increments: ', end=' ')
+        
+        #### ---- 2) BEGIN LOOP THROUGH LON SIZE
+        for lonincr in lonincr_rng:
+            print(lonincr, end=',') 
+
+            #### ---- 3) BEGIN LOOP THROUGH LAT ORIGIN
+            for lator in range(len(lator_rng)-latincr):
+                
+                ## extract the values of the top and bottom latitude points 
+                tlat, blat  = (lator_rng[lator+latincr]), (lator_rng[lator])
+                ## calculate the latsize (vertical height of the box)
+                latsize= tlat-blat
+
+                #### ---- 4) LON ORIGIN 
+                for lonor in range(len(lonor_rng)-lonincr):
+                    
+                    ## extract the values of the top and bottom longitude points
+                    rlon, llon = (lonor_rng[lonor+lonincr]), (lonor_rng[lonor])
+                    ## calculate the lonsize (horizontal width of the box)
+                    lonsize= rlon-llon
+                    
+                    ## before moving on to further calculations, determine if the box size meets size requirement
+                    if lonsize*latsize >=minsize:
+                        
+                        ## calculate the spatially averaged seasonal SST within the lat-lon box in the loop
+                        box_seas = extract_region(data, blat,tlat,llon,rlon,mean='yes', skipna1=True)
+
+                        #### LOOP THROUGH 4 SEASONS 
+                        for s in range(4):
+                            
+                            ## season nums correspond to the numeric month of each season's first month
+                            ## 2,5,8,11
+                            seas=season_nums[s]
+                            
+                            ## <add code>
+                            box_1seas = box_seas.sel( time = box_seas['time.month'] == seas )['ts']
+                            
+                            ## nn34_seas was computed in the previous cell
+                            index_1seas = index_seas.sel( time = index_seas['time.month'] == seas )['ts']
+
+                            ## calculate the ndi value, using the nn34 and box within the loop
+                            ndi_1seas = index_1seas - box_1seas
+
+                            ## this is where I'd loop through multiple PCs, but not necessary right now.
+                            #for pci in range(num_of_pcs):
+                            pci=0 ## first principle component
+
+                            ## this stores the correlation and R2 value for one box possibility in all seasons
+                            cc_box, ev_box = cc_ev(ndi_1seas, PCTS[s][pci])
+
+                            ## this is where the central lat and lon of a box candidate get added
+                            ## <add code>
+                            if ev_box > ev_index[s, 0, pci]: ## 2D is 0 because num_ensms == 1
+                                
+                                ## <ADD MORE CODE from here all the way through!>
+                                cenlon = lonor_rng[lonor+int(lonincr/2)]
+                                cenlat = lator_rng[lator+int(latincr/2)]
+
+                                cenlons[s] = np.append(cenlons[s], cenlon)
+                                cenlats[s] = np.append(cenlats[s], cenlat)
+                                #corrs = np.append(corrs, cc_box)
+
+                                
+    print('...done.')                           
+    return cenlats, cenlons #,boxsizes 
+
+##########################################################################################################################
+##########################################################################################################################
+##########################################################################################################################
+def calc_hits_num(hits_lats, hits_lons):
+    """"""
+    lats_un = np.unique(hits_lats)
+    lons_un = np.unique(hits_lons)
+
+
+    latlongrid = np.zeros((lats_un.size, lons_un.size))
+    
+    for a in range(len(lats_un)):
+        latlongrid[a,:]=lats_un[a]
+
+    for o in range(len(lons_un)):
+        latlongrid[:,o]=lons_un[o]
+
+    num_hits = np.zeros_like(latlongrid)
+
+    for cla in range(len(lats_un)):
+        curr_lat = lats_un[cla]
+        
+        ## get indices of all hits at this current lat
+        inds= np.where(hits_lats==curr_lat)[0]
+        
+        ## get the corressponding longitudes for each lat hit
+        curr_lons_al  = hits_lons[inds]
+        
+        ## sum up hits 
+        for clo in range(len(curr_lons_al)):
+            ind = np.where([latlongrid[cla]==curr_lons_al[clo]])[1][0]
+            num_hits[cla,ind]+=1
+ 
+    return num_hits, lats_un, lons_un
 
 ##########################################################################################################################
 ##########################################################################################################################
