@@ -28,20 +28,26 @@ nn34 = [-5, 5, 190, 240]
 #####################################################################################################################
 #####################################################################################################################
 def list_my_functions():
+    """ PURPOSE: list the available functions in the alexas_functions library
+        inputs: nothing
+        returns: nothing """
+    
     print('the available functions are: ')
     print('list_my_functions')
-    print('test_function')
     print('get_filename')
     print('get_CMIP_name_list')
     print('set_new_time_variable')
+    
     print('get_landsea_mask')
     print('extract_region')
     print('mask_out_regions') #old name 'make_mask'
     print('reshape')
     print('get_PC_components')
     print('cc_ev')
+    
     print('dump_into_pickle')
     print('open_pickle_data')
+    
     print('uniform_coords')
     print('zonal_avg')
     print('Fourier_Analysis')
@@ -49,13 +55,6 @@ def list_my_functions():
     print('calc_hits_num')
     
     print(':end of list.')
-
-#####################################################################################################################
-#####################################################################################################################
-#####################################################################################################################
-def test_function():
-    print('hello!')
-    return 8
     
 #####################################################################################################################
 #####################################################################################################################
@@ -63,27 +62,33 @@ def test_function():
 def get_filename(gen, var, exp='historical', name=None, r=1, i=1, p=1, f=1, years='*', realm='Amon', omtype='mod',
                 root= 'C:\\Users\\alexa\\Documents\\RESEARCH\\DATA' ):
     
-    """ all inputs are strings, and the filename return is a string
-        the full filename is returned, including the full path to the file
+    """ PURPOSE: generate the complete path + filename of the climate model output data or obs data stored in local computer
         
-        gen: can_ensm, mpi_ensm, CMIP5, etc
-        exp: experiment 'historical', 'rcp85' etc 
-        var: standard variable name 'pr', 'tas', etc
-        name: model name example 'MPI-ESM'
-        ensemble components: r=1, i=1, p=1, f=1
-        years='*': or specify full years range in the file name
-        realm='Amon'
+        gen (str): options for this input is: can_ensm, mpi_ensm, had_ensm, CMIP5, or CMIP6. 
+        gen is essentially the group or type of model (or obs) ensmbles, which follow a similar naming pattern as well
+        var (str): standard variable CF name for CMIP products, such pr, tas, ts, etc.
         
-        omtype='obs', 'mod'
+        exp (str): offical CMIP experiment name, such as historical, rcp85, ssp585, etc. 'historical' is the default
+        name (str): name of the specific model, such as MPI-ESM, CanESM2, CCSM4, EC-EARTH, etc
+        ensemble components (int): r=1, i=1, p=1, f=1 are the defaults 
+        if looping through ensemble members, send looping variable to the altering ensemble component (such as r=looping variable)
+        years (str): defaut is '*' , so that all years of data can be accessed. 
+        or, send a string that specifies the dates in the file name exactly as it appears in the file name
+        realm (str): default is 'Amon' . For oceanic variables such as tos, send 'Omon' 
+  
+        omtype (str): the options for this input are 'mod' or 'obs'. 
+        the default is 'mod', but if accessing obs data, you must send the omtype='obs' along with the other args and kwargs
         
-        root='C:\\Users\\alexa\\Documents\\RESEARCH\\DATA' which is specific to my computer. 
-        input the directory path to where all ensemble data folders are 
+        root (str): root='C:\\Users\\alexa\\Documents\\RESEARCH\\DATA' is the default which is specific to my computer. 
+        if acessing on a different computer, input the directory path to where all ensemble data folders are. 
+        I have the ensmeble folders organized by the variable 'gen' (see above)
         
-        ## 'C:\\' are for windows. linux uses '/'   
-        
-        """
+        returns the entire path + file name to the file (str) (or files, if multiple files for various chunks of time)
+ 
+        ## note: 'C:\\' are for windows. linux uses '/'   """
     
-    
+    #####################################
+    ##### IF ACCESSING DATA FROM A MODEL
     if omtype=='mod':
         
         ## specs for can_ensm files
@@ -151,14 +156,15 @@ def get_filename(gen, var, exp='historical', name=None, r=1, i=1, p=1, f=1, year
             ensm = f'r{r}i{i}p{p}'
             path = f'{root}\\{gen}\\{var}'
 
-        ## construct the full file name
+        ## construct the file name
         ## example: ts_Amon_MPI-ESM_rcp85_r088i2005p3_200601-209912.nc
         filename = f'{var}_{realm}_{name}_{exp}_{ensm}_{years}.nc'
         
         #using 'path' to get to the file, define the full filename includng the directories
         fullfilename = f'{path}\\{filename}'  
         
-    #####################################################################################################
+    ###########################################
+    ##### IF ACCESSING DATA FROM A OBSERVATIONS
     elif omtype=='obs':
         if gen=='had_ensm':
             ensm=r
@@ -171,14 +177,17 @@ def get_filename(gen, var, exp='historical', name=None, r=1, i=1, p=1, f=1, year
                 var='sst' ## this is the name of the SST variable in the file, and in the file directory 
                 obs_file_set  = 'HadSST.3.1.1.0.anomalies.'
 
-            
+            ## directory structure is root + gen + version + var
             path = f'{root}\\{gen}\\Version_4.6\\{var}'
-
+        
+            ## file name structure
             filename = f'{obs_file_set}{ensm}.nc'
             
+            ## full file name to be returned
             fullfilename = f'{path}\\{filename}' 
 
     
+    ## note: return statement is outside the omtype if statements 
     return fullfilename
 
 
@@ -190,14 +199,16 @@ def get_CMIP_name_list(gen, var_list, exp_list, root='D:\\CMIP_DATA'):
     """ PURPOSE: Get a list of CMIP5 or CMIP6 model names that there is data available for. 
         This function returns a list of model names for which data is available for all the 
         inputted variables and experiements. 
+        ** Then this list of CMIP names can be looped over,
+        by sending each model name to the alexas_function.get_filename() to construct the path and filename to 
+        each CMIP file **
         
         gen (str): 'CMIP5' or 'CMIP6'
         var_list (list of str): list of variables ('tas', 'ts', 'psl', 'pr', etc.)
         exp_list (list of str): list of experiments ('historical', 'rcp85', 'ssp585')
         root (str): the directory path to the CMIP data inventory excel file
         
-        return Name_List (list of str) 
-        """
+        return Name_List (list of str) """
     
     ## open excel file of inventory lists for CMIP5 or CMIP6 data
     df = pd.read_excel (f'{root}\\data_inventory_{gen}_forpython.xlsx')
@@ -240,18 +251,18 @@ def get_CMIP_name_list(gen, var_list, exp_list, root='D:\\CMIP_DATA'):
 ##########################################################################################################################
 ##########################################################################################################################
 def set_new_time_variable(da_, gen, exp='historical'):
-    """
-    PURPOSE: create a uniform datetime index for gridded monthly CMIP model output. 
-    This code converts them all to numpy.datetime64 type of datetimes. It also utilizes
-    builtin datetime function and pandas datatime. This is to deal with the various types of 
-    datetime objects that appear in the CMIP output files. 
-    This code lines the datetime indices to the correct years for their respective experiement,
-    and cuts off projections at the year 2100.
+    """ PURPOSE: create a uniform datetime index for gridded monthly CMIP model output. 
+        This code converts them all to numpy.datetime64 type of datetimes. It also utilizes
+        builtin datetime function and pandas datatime. This is to deal with the various types of 
+        datetime objects that appear in the CMIP output files. 
+        This code lines the datetime indices to the correct years for their respective experiement,
+        and cuts off projections at the year 2100.
     
-    da_ (xr.data_set): the xarray dataset loaded from the cmip model data
-    gen (str): 'CMIP5' or 'CMIP6'
-    exp (str): the cmip experiment name
-    """
+        da_ (xr.Dataset): the xarray dataset loaded from the cmip model data
+        gen (str): 'CMIP5' or 'CMIP6'
+        exp (str): the cmip experiment name
+    
+        returns the same dataset that was inputted but with the redefined time index """
 
     ### DETERMINE THE START AND END YEAR AND MONTHS BASED ON THE INPUT DATA 
     
@@ -315,26 +326,25 @@ def set_new_time_variable(da_, gen, exp='historical'):
     ## return the entire xarray dataset, with the updated and trimmed time series index
     return da_
 
+#####################################################################################################################
+#####################################################################################################################
+#####################################################################################################################
 
+## < SKIP for now, come back to add better documentation > 
 
-#####################################################################################################################
-#####################################################################################################################
-#####################################################################################################################
 def get_landsea_mask(all_percents, perc_val=100, mtype='land', nn='yes'):
     
-    """all_percents: the 2-D numpy array of percent ocean at each grid point,
+    """ all_percents: the 2-D numpy array of percent ocean at each grid point,
         calculated by the "calculate_percent_ocean" function
-        
         per_val: the percentage and above of ocean or land you want to keep (the rest is masked out)
-        
         mtype='land', if mtype='sea' it will mask out according the percentage sea you want to keep rather than land
        
-       nn='yes', if you want 1's and nans. if nn='no', you get 1's and 0's
+        nn='yes', if you want 1's and nans. if nn='no', you get 1's and 0's
        
         model='specifiy', meaning, send the all_percents data array yourself. 
         ## you can also select model = 'mpi' or 'can', and the all_percents file of the respective model will be chosen for you. ##
        
-        returns a 2-D (lat, lon) array of 1's and nans (or 0's) that you can apply to the original data field"""
+        returns a 2-D (lat, lon) array of 1's and nans (or 0's) that you can apply to the original data field """
     
 
     
@@ -364,23 +374,27 @@ def get_landsea_mask(all_percents, perc_val=100, mtype='land', nn='yes'):
 #####################################################################################################################
 #####################################################################################################################
 #####################################################################################################################
-def extract_region(data, blat, tlat, llon, rlon, mean='no', skipna1=True):
-    """
-    -data should be an xarray dataset 
-    -four vertices of the region should be provided (the ep or mc regions that are defined, for example)
-    -blat, tlat, llon, rlon
-    -an optional keyword of whether you want the mean over the region (therefore reducing the
-     dimensions by having only one point at each time step)
+def extract_region(data, blat, tlat, llon, rlon, mean=False, skipna1=True):
+    """ PURPOSE: get a subset of an xarray in a smaller lat lon region
+        
+        data: an xarray dataset or data array 
+        blat, tlat, llon, rlon (ints or floats): the lat and lon bounds for the region of interest 
+        (example, alexas_functions.ep or alexas_functions.mc contain the latlon bounds)
+        
+        mean (bool): default is False. mean=True will compute the mean over the region, 
+        (this reduces the dimensions from lat, lon, time to just time)
+        (the xarray dataset must have the diminsions 'lat' and 'lon'. 
+        use alexas_functions.uniform_coords() if needed before sending the xarray dataset to this function)
      
-     the return is an xarray dataset for the region specified
-    """
+        return a subsetted xarray dataset, possibly spatially averaged (if mean=True), for the region specified """
     
     region = data.loc[dict( lat=slice(blat, tlat), lon=slice(llon, rlon) )]
     
-    ## This take the spatial mean with the assumption of equal areas per latlon box.
+    
+    ## This take the spatial mean over the region with the assumption of equal areas per latlon box.
     ## if averaging over large span of latitude, cosine weights should be applied based on latitude 
     ## (see alexas_functions.zonal_avg)
-    if mean=='yes':
+    if mean==True:
         region_mean_value = region.mean(dim=['lat','lon'], skipna=skipna1)
         return region_mean_value
     
