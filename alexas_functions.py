@@ -406,66 +406,56 @@ def extract_region(data, blat, tlat, llon, rlon, mean=False, skipna1=True):
 #####################################################################################################################
 #####################################################################################################################
 #####################################################################################################################
-def mask_out_regions(dataset, regionlist, mask_inward=True):
-    """
-    -input an xarray dataset 
-    -regionlist should be (number of regions) by 4, 4 being the 4 vertices of the region (such as the EP, for example)
-    -mask_inward is the default option. it means that you want to mask the regions you are providing,
-    and keep everything else. if set to False, you will keep the data in the regions, and mask out everything else. 
-    -this function returns a mask, it is a 2-D numpy array of ones and nans. It is the same size as the lat/lon field 
-    of the given variable (for example, the CanESM lat/lon grid for precip is (64 by 128))
-    
-    This function makes a list of all the lat/lon combinations of the given dataset. Then, it makes a 
-    list of the lat/lon combinations within the regions specified. 
-    
-    It intitializes a mask that is the size of the lat/lon grid 
-        of ones if mask_inward =True
-        or of nans if mask_inward=False 
-    
-    Then, at each lat/lon point in the mask's grid (which is the same 
-    size as the variable's), it checks whether or not the point is in the region or not. 
-    
-        if mask_inward = True, it turns the one at the point into a nan. 
-        if mask_inward = False, it turns the nan at the point into a one. 
-    
-    Once each point in the mask has been checked, it is reshaped and returned (numpy array).
-    This mask can now by multiplied with the precip values, to mask the appropriate values.
-    """
+def mask_out_regions(data, regionlist, mask_inward=True):
+    """ PURPOSE: to create a 2-D mask (numpy array) that can be applied to an entire spatial field of a variable. 
+        The function will convert the regions of interest, given by regionlist, and convert them to nans (or keep as ones).
+        The rest of the gridpoints will be ones (or convertd to nans).
+        This is so that the mask can be broadcasted to the entire datafield of the same shape as the input dataset. 
+        
+        data (xr.dataarry): spatial latlon field of a variable, with certain regions to be masked out
+        regionlist (list):  should be (number of regions) by 4, 4 being the 4 vertices of the region (such as the EP, for example)
+        mask_inward=True is the default option. This option will mask out the regions you are providing,
+        and keep everything else. if set to mask_inward=False, the data inside the regions will remain,
+        and everything outside of those regions masked out (set to zero). 
+        
+        returns a 2-D numpy array of ones and nans. It is the same size as the latlon field of the given variable 
+        (for example, the CanESM2 latlon grid for precip is (64 by 128), so the return would be that size) """
     
     
-    ##get lat lon values from full dataset, put into list
-    alllatlons = np.asarray(np.meshgrid(dataset.lon, dataset.lat)) 
+    ## get all the latlon values from full dataset 
+    alllatlons = np.asarray(np.meshgrid(data['lon'], data['lat'])) 
     alllatlons_list = alllatlons.reshape(2, alllatlons.shape[1]*alllatlons.shape[2])
+    ##  note: alllatlons_list.shape = (2, latsize*lonsize)
     
-    ## initialize the list of points within all input regions
+    ## initialize an empty array , to get a list of the latlon points in each region all together
     regslatlons_list = np.empty((2,1))
     
     ## loop through list of regions
+    ## the goal of this loop is to get a list of latlon points that is formatted simarly to (alllatlons_list)
     for r in regionlist:
-        ##reduce dataset to region, get those lat lon values, put into list
-        rr = alexas_functions.extract_region(dataset, r[0], r[1], r[2], r[3]) 
-        rrlatlons = np.asarray(np.meshgrid(rr.lon, rr.lat)) 
+        ## reduce dataset to region, get those lat lon values, put into list
+        rr = alexas_functions.extract_region(data, r[0], r[1], r[2], r[3]) ## might need to delete the 'alexas_functions.' in front...
+        rrlatlons = np.asarray(np.meshgrid(rr['lon'], rr['lat'])) 
         rrlatlons_list = rrlatlons.reshape((2,rrlatlons.shape[1]*rrlatlons.shape[2]))
         
         ## append list of latlons from specific region to full list of regions' latlons 
         regslatlons_list = np.append(regslatlons_list, rrlatlons_list, axis=1)
       
     
-    ## create a mask that is the same size as full dataset latlons
+    ## create an array the same size as full dataset latlons
     mask = np.copy(alllatlons_list) 
 
-    ## plug in value options for masking
-    #twozeros = np.array([0, 0])
+    ## Options for masking or keeping each latlon pair
     twoones = np.array([1., 1.])
     twonans = np.array([np.nan, np.nan])
-
+    #twozeros = np.array([0, 0])
     
     ## the default, meaning the INPUT regions ARE MASKED, other regions remain
     if mask_inward == True:
         plugin = twonans
         mask[:] = 1. 
        
-    ## with this option the INPUT regions ARE SAVED, other regions are masked
+    ## with this option the INPUT regions REMAIN, other regions are masked
     if mask_inward == False:
         plugin = twoones
         mask[:] = np.nan 
@@ -483,7 +473,7 @@ def mask_out_regions(dataset, regionlist, mask_inward=True):
                 mask[:,ll] = mask[:,ll]        
                        
                 
-    ##reshape the mask
+    ## reshape the mask to the original shape of the inputted latlonfield
     mask = mask.reshape(2,alllatlons.shape[1],alllatlons.shape[2])
     
     ## returning it like this returns it as a 2-D lat-lon grid of ones and nans
@@ -492,16 +482,17 @@ def mask_out_regions(dataset, regionlist, mask_inward=True):
 #####################################################################################################################
 #####################################################################################################################
 #####################################################################################################################
-def reshape(data):
-    """reshape 3-D dimensional data to 2-D data
-    input is an xarray, the return is a numpy array
-    (the original version of this function written by NG for ATMO 632 class)"""
+def reshape(data, var='pr'):
+    """ PURPOSE: reshape a 3-D dataset (time, lat, lon) to 2-D dataset (time, space)
+    data (xr.dataset): data to be reshaped, input variable name (a str) in var=
+    the return is a numpy array """
 
     stime = data.sizes['time']
     slat  = data.sizes['lat']
     slon  = data.sizes['lon']
     
-    reshaped_data = data['pr'].values.reshape((stime,slat*slon))
+    reshaped_data = data[var].values.reshape((stime,slat*slon))
+    
     return reshaped_data
 
 #####################################################################################################################
@@ -716,8 +707,13 @@ def zonal_avg(idata, slice_begin, slice_end):
 #####################################################################################################################
 def Fourier_Analysis(diff):
     
+    """ PURPOSE:
+        diff (np.array):
+        
+        returns fourlist (np.array) """
+    
+    
     ## input of 12 points (annual cycle of monthly mean temperature differences)
-
     ## each month represents 1/12th of the 2pi period
     p = math.pi/12
     months = [p*x for x in range(1,24,2)]   
