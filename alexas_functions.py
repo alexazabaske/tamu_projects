@@ -1,10 +1,6 @@
 #!/usr/bin/env python
 # coding: utf-8
 
-# In[ ]:
-
-## (quick test)
-
 import numpy as np
 import xarray as xr
 import pickle
@@ -26,9 +22,9 @@ nn30 = [-5, 5, 210, 270]
 nn34 = [-5, 5, 190, 240]
 #############################################################
 
-#####################################################################################################################
-#####################################################################################################################
-#####################################################################################################################
+#####################################################################################################################################
+#####################################################################################################################################
+#####################################################################################################################################
 def list_my_functions():
     """ PURPOSE: list the available functions in the alexas_functions library
         inputs: nothing
@@ -40,6 +36,10 @@ def list_my_functions():
     print('get_CMIP_name_list')
     print('set_new_time_variable')
     
+    print('uniform_coords')
+    print('zonal_avg')
+    print('Fourier_Analysis')
+    
     print('get_landsea_mask')
     print('extract_region')
     print('mask_out_regions') #old name 'make_mask'
@@ -49,18 +49,15 @@ def list_my_functions():
     
     print('dump_into_pickle')
     print('open_pickle_data')
-    
-    print('uniform_coords')
-    print('zonal_avg')
-    print('Fourier_Analysis')
+   
     print('search_box')
     print('calc_hits_num')
     
     print(':end of list.')
     
-#####################################################################################################################
-#####################################################################################################################
-#####################################################################################################################
+#####################################################################################################################################
+#####################################################################################################################################
+#####################################################################################################################################
 def get_filename(gen, var, exp='historical', name=None, r=1, i=1, p=1, f=1, years='*', realm='Amon', omtype='mod',
                 root= 'C:\\Users\\alexa\\Documents\\RESEARCH\\DATA' ):
     
@@ -166,7 +163,7 @@ def get_filename(gen, var, exp='historical', name=None, r=1, i=1, p=1, f=1, year
         fullfilename = f'{path}\\{filename}'  
         
     ###########################################
-    ##### IF ACCESSING DATA FROM A OBSERVATIONS
+    ##### IF ACCESSING DATA FROM OBSERVATIONS
     elif omtype=='obs':
         if gen=='had_ensm':
             ensm=r
@@ -193,9 +190,9 @@ def get_filename(gen, var, exp='historical', name=None, r=1, i=1, p=1, f=1, year
     return fullfilename
 
 
-##########################################################################################################################
-##########################################################################################################################
-##########################################################################################################################
+#####################################################################################################################################
+#####################################################################################################################################
+#####################################################################################################################################
 def get_CMIP_name_list(gen, var_list, exp_list, root='D:\\CMIP_DATA'):
    
     """ PURPOSE: Get a list of CMIP5 or CMIP6 model names that there is data available for. 
@@ -249,9 +246,9 @@ def get_CMIP_name_list(gen, var_list, exp_list, root='D:\\CMIP_DATA'):
     
     return Name_List
 
-##########################################################################################################################
-##########################################################################################################################
-##########################################################################################################################
+#####################################################################################################################################
+#####################################################################################################################################
+#####################################################################################################################################
 def set_new_time_variable(da_, gen, exp='historical'):
     """ PURPOSE: create a uniform datetime index for gridded monthly CMIP model output. 
         This code converts them all to numpy.datetime64 type of datetimes. It also utilizes
@@ -328,9 +325,96 @@ def set_new_time_variable(da_, gen, exp='historical'):
     ## return the entire xarray dataset, with the updated and trimmed time series index
     return da_
 
-#####################################################################################################################
-#####################################################################################################################
-#####################################################################################################################
+#####################################################################################################################################
+#####################################################################################################################################
+#####################################################################################################################################
+def zonal_avg(idata, slice_begin, slice_end):  
+    ##idata should be an xarray data arry, such as da1.sst
+    """ PURPOSE: To compute the average value of a variable across latitude bands , taking into account the different areas in 
+        each latitude band (apply cosine weights)
+        idata (xr.dataarray): an xarray data array to compute the zonal average of. shape should be (time, lat, lon)
+        slice_begin (int or float): the bottom latitude of the slice to average over
+        slice_end (int or float): the top latitude of the slice to average over
+        
+        returns an xarray data array of the zonal average of the variable. since the spatial components (lat,lon)
+        have been averaged over, the shape of the returned xarray is 1-D (time)
+        
+        ## note: use (slice_begin, slice_end = -90, 90) for a global average """
+    
+    ## the if,else is to do the order of slicing correct no matter the sign of the input latitude values
+    if idata['lat'][0] < 0:                      
+        zslice = slice(slice_begin, slice_end) 
+    else:
+        zslice = slice(slice_end, slice_begin) 
+
+    ## extract the subset (latitude slice) from the xr.dataarray 
+    idata = idata.loc[dict(lat=zslice)]
+    
+    ## compute the cosine weights for th inputted latitude slice
+    cosweight=np.cos(np.deg2rad(idata['lat'])) 
+    
+    ## average the data longitudinally
+    idata2=idata.mean(dim='lon')
+     
+    ## average the data latitudinally, with the cosine weights applied  
+    Zavg=np.sum(idata2*cosweight, axis=1)/np.sum(cosweight)
+    
+    return Zavg
+
+#####################################################################################################################################
+#####################################################################################################################################
+#####################################################################################################################################
+def Fourier_Analysis(diff):
+    
+    """ PURPOSE:
+        diff (np.array):
+        
+        returns fourlist (np.array) """
+    
+    
+    ## input of 12 points (annual cycle of monthly mean temperature differences)
+    ## each month represents 1/12th of the 2pi period
+    p = math.pi/12
+    months = [p*x for x in range(1,24,2)]   
+
+    ## get the sin and cos of each month
+    cosmonths = np.array([math.cos(x) for x in months])   
+    sinmonths = np.array([math.sin(x) for x in months])   
+    
+    ## get data point for that month x the month in its periodic form for sin and cos
+    datacosmon = [x*y for x,y in zip(diff,cosmonths)]  
+    datasinmon = [x*y for x,y in zip(diff,sinmonths)]  
+
+    ## get ao, a1, b1
+    ao=sum(diff)/12
+    a1=sum(datacosmon)/6
+    b1=sum(datasinmon)/6
+
+    ## get the fit
+    #fit1point = ao + (a1*cosmonths[3]) + (b1*sinmonths[3])
+    fitlist = [ao + a1*x + b1*y for x,y in zip(cosmonths,sinmonths)]   
+
+    ## get the amplitude
+    amp = math.sqrt((a1**2)+(b1**2))   
+
+    ## get the phase -180 to 180
+    pshr = math.acos(a1/amp)
+    if b1 < 0:
+        pshr=-pshr
+    pshd = (pshr*360)/(2*math.pi)
+    
+    ## get the phase 0 to 360
+    pshdo=pshd
+    if b1 < 0:
+        pshdo = pshd + 360
+        
+    ## [amplitude, phase in radians, phase in deg 0-+/-180, ps 0-360, fourier constants]
+    fourlist = [amp, pshr, pshd, pshdo, ao, a1, b1]
+    
+    return np.array(fourlist)
+#####################################################################################################################################
+#####################################################################################################################################
+#####################################################################################################################################
 
 ## < SKIP for now, come back to add better documentation > 
 
@@ -373,9 +457,9 @@ def get_landsea_mask(all_percents, perc_val=100, mtype='land', nn='yes'):
     ## the mask is 2-D, same shape as lat/lon grid numpy array
     return perc_mtype
 
-#####################################################################################################################
-#####################################################################################################################
-#####################################################################################################################
+#####################################################################################################################################
+#####################################################################################################################################
+#####################################################################################################################################
 def extract_region(data, blat, tlat, llon, rlon, mean=False, skipna1=True):
     """ PURPOSE: get a subset of an xarray in a smaller lat lon region
         
@@ -403,11 +487,10 @@ def extract_region(data, blat, tlat, llon, rlon, mean=False, skipna1=True):
     ## return the dataset trimmed to the desire region. no averaging or other changes made
     else:
         return region
-  
-   
-#####################################################################################################################
-#####################################################################################################################
-#####################################################################################################################
+    
+#####################################################################################################################################
+#####################################################################################################################################
+#####################################################################################################################################
 def mask_out_regions(data, regionlist, mask_inward=True):
     """ PURPOSE: to create a 2-D mask (numpy array) that can be applied to an entire spatial field of a variable. 
         The function will convert the regions of interest, given by regionlist, and convert them to nans (or keep as ones).
@@ -481,9 +564,9 @@ def mask_out_regions(data, regionlist, mask_inward=True):
     ## returning it like this returns it as a 2-D lat-lon grid of ones and nans
     return mask[0,:,:] 
           
-#####################################################################################################################
-#####################################################################################################################
-#####################################################################################################################
+#####################################################################################################################################
+#####################################################################################################################################
+#####################################################################################################################################
 def reshape(data, var='pr'):
     """ PURPOSE: reshape a 3-D dataset (time, lat, lon) to 2-D dataset (time, space)
     data (xr.dataset): data to be reshaped, 
@@ -498,9 +581,9 @@ def reshape(data, var='pr'):
     
     return reshaped_data
 
-#####################################################################################################################
-#####################################################################################################################
-#####################################################################################################################
+#####################################################################################################################################
+#####################################################################################################################################
+#####################################################################################################################################
 def get_PC_components(data, number_of_PCs, opt='grid'):
     """ PURPOSE: Calculate principle components of a 3-D variable (time, lat,lon)
         data (xr.dataarray): a dataset variable with dimensions (time, lat, lon) 
@@ -523,8 +606,8 @@ def get_PC_components(data, number_of_PCs, opt='grid'):
         ## note: two other functions nested in this function: remove_nans() and insert_nans(), these are for dealing
         ## with nans in data set, as the PC function will not accept nan values. """
 
-    #################################################################################################
-    #################################################################################################   
+    ########################################################################################################
+    ########################################################################################################   
     def remove_nans(redata):
         """ PURPOSE: remove nans from a 2-D dataset, while conserving indormation about their indice values
         redata: reshaped (2-dimensional, (time, space)) data, after reshape function """
@@ -551,8 +634,8 @@ def get_PC_components(data, number_of_PCs, opt='grid'):
         ## these inds arrays are used for inserting nans back into the grid after the pca 
         return redata_nn, inds_all, inds_all_nn
     
-    #################################################################################################
-    #################################################################################################     
+    ########################################################################################################
+    ########################################################################################################     
     def insert_nans(PC0, inds_1d, inds_nn_1d):
         """ PURPOSE: inserts nans into the spatial field of a PC component where they were previously
         back into indices where they were removed """
@@ -591,8 +674,8 @@ def get_PC_components(data, number_of_PCs, opt='grid'):
         PC000[PC000==-999] = np.nan
 
         return PC000
-        #################################################################################################
-        #################################################################################################  
+        ########################################################################################################
+        ########################################################################################################  
         ## End of nested functions (used to managing nan values)
     ## Beginning of get_PC_components() function
     
@@ -651,9 +734,9 @@ def get_PC_components(data, number_of_PCs, opt='grid'):
             ## RETURN OPTION 1, 2 & 3 (see doc string)
             return list_of_PC_grid, list_of_PC_ts, (pca.explained_variance_ratio_ *100)[0:number_of_PCs]
 
-#####################################################################################################################
-#####################################################################################################################
-#####################################################################################################################
+#####################################################################################################################################
+#####################################################################################################################################
+#####################################################################################################################################
 def cc_ev(data1, data2):
     """ PURPOSE: Calculate the the correlation coeficient and the explained variance of two 1-D arrays
         data1 (numpy array) & data2 (numpy array) need to be a 1-D array. Such as a single variable over time.
@@ -667,13 +750,13 @@ def cc_ev(data1, data2):
     
     return [cc, ev]   
 
-#####################################################################################################################
-#####################################################################################################################
-#####################################################################################################################
+#####################################################################################################################################
+#####################################################################################################################################
+#####################################################################################################################################
 ## this function saves the variable into a file that you can open later
 def dump_into_pickle(fname, datatodump):
     """
-    fname is the name of the file where to save the variable. it should be a string. make sure to add '.pkl' as the extension
+    fname is the name of the file where to save the variable. it should be a string. add '.pkl' as the extension
     datatodump is anything. a list, numpy array, a float, an xarray dataset. 
     """
     
@@ -702,96 +785,32 @@ def open_pickle_data(fname):
 # b = open_pickle_data('example.pkl')
 
 # print(a==b)
-###############################################
-#####################################################################################################################
-#####################################################################################################################
-#####################################################################################################################
-def uniform_coords(data_array, old_label_list, new_label_list):
+################################################
+#####################################################################################################################################
+#####################################################################################################################################
+#####################################################################################################################################
+def uniform_coords(dataset, old_label_list, new_label_list):
+    """ PURPOSE: rename coordinates in an xarray dataset 
+        dataset (xr.Dataset): the dataset with coordinate names to be changed 
+        old_label_list: list of the coordinate names in the dataset (example: ['latitude', 'longitude']) 
+        new_label_list: list of the new names for the coordinates (example: ['lat', 'lon']
+        
+        returns the dataset, but with the new names for the coordinates """
     
     if len(old_label_list) == len(new_label_list):
+        
         for i in range(len(old_label_list)):
-            if old_label_list[i] in data_array.indexes.keys(): ##if not in
-                data_array = data_array.rename({old_label_list[i]: new_label_list[i]})
-
-    return data_array
-
-#####################################################################################################################
-#####################################################################################################################
-#####################################################################################################################
-def zonal_avg(idata, slice_begin, slice_end):  
-    ##idata should be an xarray data arry, such as da1.sst
-  
-    if idata['lat'][0] < 0:                      
-        zslice = slice(slice_begin, slice_end)
+            #if old_label_list[i] in data_array.indexes.keys(): ##commenting this out.. I don't I need this line
+            
+            dataset = dataset.rename({old_label_list[i]: new_label_list[i]})
     else:
-        zslice = slice(slice_end, slice_begin)
+        print(' len(old_label_list) == len(new_label_list) needs to be true, currently it is not. ')
+    
+    return dataset
 
-    idata = idata.loc[dict(lat=zslice)]
-    cosweight=np.cos(np.deg2rad(idata['lat'])) 
-    
-    idata2=idata.mean(dim='lon')
-    
-        
-    Zavg=np.sum(idata2*cosweight, axis=1)/np.sum(cosweight)
-    
-    
-    return Zavg
-
-#####################################################################################################################
-#####################################################################################################################
-#####################################################################################################################
-def Fourier_Analysis(diff):
-    
-    """ PURPOSE:
-        diff (np.array):
-        
-        returns fourlist (np.array) """
-    
-    
-    ## input of 12 points (annual cycle of monthly mean temperature differences)
-    ## each month represents 1/12th of the 2pi period
-    p = math.pi/12
-    months = [p*x for x in range(1,24,2)]   
-
-    ## get the sin and cos of each month
-    cosmonths = np.array([math.cos(x) for x in months])   
-    sinmonths = np.array([math.sin(x) for x in months])   
-    
-    ## get data point for that month x the month in its periodic form for sin and cos
-    datacosmon = [x*y for x,y in zip(diff,cosmonths)]  
-    datasinmon = [x*y for x,y in zip(diff,sinmonths)]  
-
-    ## get ao, a1, b1
-    ao=sum(diff)/12
-    a1=sum(datacosmon)/6
-    b1=sum(datasinmon)/6
-
-    ## get the fit
-    #fit1point = ao + (a1*cosmonths[3]) + (b1*sinmonths[3])
-    fitlist = [ao + a1*x + b1*y for x,y in zip(cosmonths,sinmonths)]   
-
-    ## get the amplitude
-    amp = math.sqrt((a1**2)+(b1**2))   
-
-    ## get the phase -180 to 180
-    pshr = math.acos(a1/amp)
-    if b1 < 0:
-        pshr=-pshr
-    pshd = (pshr*360)/(2*math.pi)
-    
-    ## get the phase 0 to 360
-    pshdo=pshd
-    if b1 < 0:
-        pshdo = pshd + 360
-        
-    ## [amplitude, phase in radians, phase in deg 0-+/-180, ps 0-360, fourier constants]
-    fourlist = [amp, pshr, pshd, pshdo, ao, a1, b1]
-    
-    return np.array(fourlist)
-
-##########################################################################################################################
-##########################################################################################################################
-##########################################################################################################################
+#####################################################################################################################################
+#####################################################################################################################################
+#####################################################################################################################################
 def search_box(data, index_seas, static_box, PCTS, ev_index, latslice=slice(-20,20), lonslice=slice(100,300), 
                latincr_rng = range(2,12,2), lonincr_rng = range(10,44,4), minsize=180):
     """PURPOSE:
@@ -890,9 +909,9 @@ def search_box(data, index_seas, static_box, PCTS, ev_index, latslice=slice(-20,
     print('...done.')                           
     return cenlats, cenlons #,boxsizes 
 
-##########################################################################################################################
-##########################################################################################################################
-##########################################################################################################################
+#####################################################################################################################################
+#####################################################################################################################################
+#####################################################################################################################################
 def calc_hits_num(hits_lats, hits_lons):
     """"""
     lats_un = np.unique(hits_lats)
@@ -925,6 +944,6 @@ def calc_hits_num(hits_lats, hits_lons):
  
     return num_hits, lats_un, lons_un
 
-##########################################################################################################################
-##########################################################################################################################
-##########################################################################################################################
+#####################################################################################################################################
+#####################################################################################################################################
+#####################################################################################################################################
