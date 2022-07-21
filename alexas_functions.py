@@ -366,22 +366,22 @@ def zonal_avg(idata, slice_begin, slice_end):
 #####################################################################################################################################
 def Fourier_Analysis(diff):
     
-    """ PURPOSE:
-        diff (np.array):
+    """ PURPOSE: Calculate the annual Fourier coeficients (n=1), as well as phase and amplitude calculated from these coefficents
+        diff (np.array): a numpy array of 12 values, each representing a monthly mean value. 
         
-        returns fourlist (np.array) """
-    
-    
+        returns: fourlist (np.array): a list of seven values 
+        fourlist = [amplitude, phase (radians), phase (degrees -180to180), phase (degrees 0to360), a0, a1, b1] """
+        
     ## input of 12 points (annual cycle of monthly mean temperature differences)
     ## each month represents 1/12th of the 2pi period
     p = math.pi/12
     months = [p*x for x in range(1,24,2)]   
 
-    ## get the sin and cos of each month
+    ## get the sin and cos of each pi month value
     cosmonths = np.array([math.cos(x) for x in months])   
     sinmonths = np.array([math.sin(x) for x in months])   
     
-    ## get data point for that month x the month in its periodic form for sin and cos
+    ## get data point for that month times the month in its periodic form for sin and cos
     datacosmon = [x*y for x,y in zip(diff,cosmonths)]  
     datasinmon = [x*y for x,y in zip(diff,sinmonths)]  
 
@@ -390,9 +390,9 @@ def Fourier_Analysis(diff):
     a1=sum(datacosmon)/6
     b1=sum(datasinmon)/6
 
-    ## get the fit
+    ## get the fourier fit of of the data, by using the fourier coefficients 
     #fit1point = ao + (a1*cosmonths[3]) + (b1*sinmonths[3])
-    fitlist = [ao + a1*x + b1*y for x,y in zip(cosmonths,sinmonths)]   
+    #fitlist = [ao + a1*x + b1*y for x,y in zip(cosmonths,sinmonths)]   
 
     ## get the amplitude
     amp = math.sqrt((a1**2)+(b1**2))   
@@ -416,7 +416,7 @@ def Fourier_Analysis(diff):
 #####################################################################################################################################
 #####################################################################################################################################
 
-## < SKIP for now, come back to add better documentation > 
+## < SKIP further documentation for now, come back to add after code is retested > 
 
 def get_landsea_mask(all_percents, perc_val=100, mtype='land', nn='yes'):
     
@@ -432,7 +432,6 @@ def get_landsea_mask(all_percents, perc_val=100, mtype='land', nn='yes'):
        
         returns a 2-D (lat, lon) array of 1's and nans (or 0's) that you can apply to the original data field """
     
-
     
     ## 'land' makes a land mask (keep land, mask out sea regions)
     if mtype=='land':
