@@ -484,8 +484,9 @@ def mask_out_regions(data, regionlist, mask_inward=True):
 #####################################################################################################################
 def reshape(data, var='pr'):
     """ PURPOSE: reshape a 3-D dataset (time, lat, lon) to 2-D dataset (time, space)
-    data (xr.dataset): data to be reshaped, input variable name (a str) in var=
-    the return is a numpy array """
+    data (xr.dataset): data to be reshaped, 
+    var (str): default var='pr'
+    the return is a 2-D numpy array """
 
     stime = data.sizes['time']
     slat  = data.sizes['lat']
@@ -499,13 +500,32 @@ def reshape(data, var='pr'):
 #####################################################################################################################
 #####################################################################################################################
 def get_PC_components(data, number_of_PCs, opt='grid'):
-    """ send in xarray of data for PCA, and the number of components to output 
-        opt: 'grid', 'ts', 'all' """
+    """ PURPOSE: Calculate principle components of a 3-D variable (time, lat,lon)
+        data (xr.dataarray): a dataset variable with dimensions (time, lat, lon) 
+        number_of_PCs (int): the number of components you want returned. generally 10 is a good number, components
+        beyond that usually have very low amount of variance explained.
+        opt (str): default is 'grid'. other options are 'ts' or 'all' (meaning both 'grid' and 'ts')
+            'grid' will return the spatial principle components (same shape as input dimensions (lat,lon)). 
+            'ts' will return the time series (same shape as input dimension (time)). 
+            'all' will return both of the above options 
+        
+        return options:
+        1) list_of_PC_grid: list (with size=number_of_PCs) of the spatial princible components (shape: lat,lon)
+        2) list_of_PC_ts: list (with size=number_of_PCs) of the princible components time series (shape: time)
+        3) explained variance: list of explained variance % for each PC
+        
+            if opt='grid' -> 1 & 3 are returned
+            if opt='ts' -> 2 & 3 are returned
+            if opt='all' -> 1, 2, & 3 are returned
+        
+        ## note: two other functions nested in this function: remove_nans() and insert_nans(), these are for dealing
+        ## with nans in data set, as the PC function will not accept nan values. """
 
     #################################################################################################
     #################################################################################################   
     def remove_nans(redata):
-        """send reshaped (2-dimensional) data, after reshape function"""
+        """ PURPOSE: remove nans from a 2-D dataset, while conserving indormation about their indice values
+        redata: reshaped (2-dimensional, (time, space)) data, after reshape function """
 
         ## create an index, numbering each point
         inds_all = np.arange(0, len(redata.flatten()), 1)
@@ -532,9 +552,10 @@ def get_PC_components(data, number_of_PCs, opt='grid'):
     #################################################################################################
     #################################################################################################     
     def insert_nans(PC0, inds_1d, inds_nn_1d):
-        """inserts nans into PC component back into indices where they were removed"""
+        """ PURPOSE: inserts nans into the spatial field of a PC component where they were previously
+        back into indices where they were removed """
 
-        ## PC0 is a pca._components[i], stragith from the PCA function (so it's without nans)
+        ## C0 is a pca._components[i], straight from the PCA function (so it's without nans)
         ## need 1 dimension of inds_all, and inds_all_nn.
         ## 1 dimension means 1 time stamp, since the location of the nans do not vary in time.
 
@@ -543,19 +564,16 @@ def get_PC_components(data, number_of_PCs, opt='grid'):
         #plt.plot(inds_1d)
         #plt.show()
 
-        ## im not sure if this step is necessary but it makes the code cleaner anyhow
+        ## im not sure if this step is necessary but it makes the code easier for me to understand
         a = inds_1d.copy()
         b = inds_nn_1d.copy()
         PC00 = PC0.copy()
 
         #print(len(a), len(b))
 
-        ## this figures out where to insert 'nans' (-999, to be turned into nans)
+        ## this figures out where to insert a -999, to be turned into nans in next steps
         for i in range(len(a)):
             if ( b[i] - a[i] ) !=0:
-
-                ## i don't actually need this line, but i'm keeping it in here for now
-                diff = b[i] - a[i]
 
                 b = np.insert(b, i, -999)
                 PC00 = np.insert(PC00, i, -999)
@@ -564,7 +582,7 @@ def get_PC_components(data, number_of_PCs, opt='grid'):
         #plt.plot(a)
         #plt.plot(b)
 
-        ## now the PC component can be reshaped to the original size of the data lat/lon grid 
+        ## now the PC component can be reshaped to the original size of the input data latlon grid 
         PC000 = PC00.reshape(latsize,lonsize)
 
         ## convert -999's to nans
@@ -573,65 +591,80 @@ def get_PC_components(data, number_of_PCs, opt='grid'):
         return PC000
         #################################################################################################
         #################################################################################################  
+        ## End of nested functions (used to managing nan values)
+    ## Beginning of get_PC_components() function
     
-    
+    ## this step will fail is 'lat' is listed as 'latitude' in the dataarray
+    ## use alexas_functions.uniform_coords() to fix
     latsize=len(data['lat'].values)
     lonsize=len(data['lon'].values)
     timesize_mon = len(data['time'].values)
     
     ## reshape pr data from 3-D (time, lat, lon) to 2-d (time, space)
     re_data = reshape(data)
-    
 
     ## remove nans that were put in place from masking scenarios
     ## re_data_nn is the data without nans, and the inds of the data with and without nans
     re_data_nn, inds_all, inds_all_nn = remove_nans(re_data)
 
     ## generate PC function
-    pca = PCA(n_components = 20)
+    pca = PCA(n_components = 20) 
+    ## ncomponents=20 because most of the information is in the first few principle components
    
     ## fit to the data
     pca.fit(re_data_nn)
     
-    #########################################################
+    ## option for if only PC spatial fields to be returned, or if both spatial and time series to be returned
     if opt=='grid' or opt=='all':
+        ## initialize list for 2-D numpy arrays to be added. The numpy arrays are the PC spatial fields
         list_of_PC_grid = []
         
         for gi in range(number_of_PCs):
-
+            ## insert nans (masked out regions, missing data, etc) to their correct locations
             PC_gi = insert_nans(pca.components_[gi], inds_all[0], inds_all_nn[0])
             list_of_PC_grid.append(PC_gi)
-                
+            
+        ## if PC time series are NOT desired to be returned from the function, return the data here       
         if opt=='grid': 
+            ## RETURN OPTION 1 & 3 (see doc string)
             return list_of_PC_grid, (pca.explained_variance_ratio_ *100)[0:number_of_PCs]
-        #elif opt=='all': 
-        #   continue  
-    #########################################################
-    #########################################################
+    
+    ## option for if only PC time series to be returned, or if both spatial and time series to be returned
     if opt=='ts' or opt=='all':
+        ## initialize a list for 2-D numpy arrays to be added to. The numpy arrays are the PC time series 
         list_of_PC_ts = []
         
         for ti in range(number_of_PCs):
-
+            ## compute the time series from the pc's . note, the nans to not need to be reinserted
             PC_ti = np.dot(re_data_nn,pca.components_[ti])
             list_of_PC_ts.append(PC_ti)
-            
+         
+        ## if PC spatial fields are NOT desired to be returned from the function, return the data here   
         if opt=='ts':
+            ## RETURN OPTION 2 & 3 (see doc string)
             return list_of_PC_ts, (pca.explained_variance_ratio_ *100)[0:number_of_PCs]
         
+        ## if PC spatial field AND PC time series are desired to be returned from the function, return all of it here
         elif opt=='all': 
+            ## RETURN OPTION 1, 2 & 3 (see doc string)
             return list_of_PC_grid, list_of_PC_ts, (pca.explained_variance_ratio_ *100)[0:number_of_PCs]
-    #########################################################
 
 #####################################################################################################################
 #####################################################################################################################
 #####################################################################################################################
 def cc_ev(data1, data2):
-
+    """ PURPOSE: Calculate the the correlation coeficient and the explained variance of two 1-D arrays
+        data1 (numpy array) & data2 (numpy array) need to be a 1-D array. Such as a single variable over time.
+        len(data1) == len(data2) = True in order to work
+        
+        returns a two element list, the correlation coeficient and the explained variance (r^2) """
+    
+    ## calculate the correlation coeficient. only need the first element in the corrcoef matrix
     cc = np.corrcoef(data1, data2)[1,0]
-    ev = cc **2    
+    ev = cc **2    ## calculate r^2 (explained variance)
+    
+    return [cc, ev]   
 
-    return [cc, ev]          
 #####################################################################################################################
 #####################################################################################################################
 #####################################################################################################################
@@ -639,7 +672,7 @@ def cc_ev(data1, data2):
 def dump_into_pickle(fname, datatodump):
     """
     fname is the name of the file where to save the variable. it should be a string. make sure to add '.pkl' as the extension
-    datatodump is anything. a list, nummpy array, a float, an axarray dataset. 
+    datatodump is anything. a list, numpy array, a float, an xarray dataset. 
     """
     
     ## this dumps the variable into the file
