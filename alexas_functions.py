@@ -37,12 +37,17 @@ def list_my_functions():
     print('set_new_time_variable')
     
     print('uniform_coords')
+    print('calculate_percent_ocean_gridded')
+    print('get_landsea_mask')
+    print('make_for_obs_mask')
+    
     print('zonal_avg')
     print('Fourier_Analysis')
     
-    print('get_landsea_mask')
+    
+
     print('extract_region')
-    print('mask_out_regions') #old name 'make_mask'
+    print('mask_out_regions') 
     print('reshape')
     print('get_PC_components')
     print('cc_ev')
@@ -352,8 +357,123 @@ def uniform_coords(dataset, old_label_list=None, new_label_list=['lat','lon']):
     ## this ensures that the longitudes are monotonically increasing (-180 to 180)     
     dataset = dataset.sortby("lon")    
     
-
     return dataset
+
+#####################################################################################################################################
+#####################################################################################################################################
+#####################################################################################################################################
+def calculate_percent_ocean_gridded(da, subdiv=10):
+    """ PURPOSE: 
+        da
+        subdiv=10: """
+    
+    ##da is xarray dataset
+    lat = da[lat_var].values
+    lon = da[lon_var].values
+        
+    #print(lon)
+    irange = range(0,lat.size)
+    jrange = range(0,lon.size)
+
+    ## initializing the mask for percentage ocean at each gridd point
+    percents = np.zeros((lat.size, lon.size))
+    
+    ## latitude loop
+    print('Making a data array of the % ocean area in each latlon grid box for the globe')
+    print('with grid shape (lat, lon):', percents.shape)
+    print('')
+    print('current latitude:')
+    ##### ----- LAT LOOP 
+    for i in irange:
+        currlat1 = lat[i] 
+        print(round(currlat1,5), end=',  ')
+
+        ## if not the last latitude
+        if currlat1==lat[lat.size-1]:
+            lat_incr = (-lat[i] + lat[i-1])
+        else:
+            lat_incr = (lat[i] - lat[i+1])
+            
+        lat_incr12 = abs(lat_incr/2)
+        currlatspan = (lat[i]) - lat_incr12, (lat[i]) + lat_incr12
+
+        ##### ----- LON LOOP 
+        for j in jrange:
+
+            currlon1 = lon[j]
+            if currlon1==lon[lon.size-1]:
+                lon_incr = (-lon[j] + lon[j-1])          
+            else: 
+                lon_incr = (lon[j] - lon[j+1])
+                
+            lon_incr12 = abs(lon_incr/2)
+            currlonspan = (lon[j]) - lon_incr12, (lon[j]) + lon_incr12 
+
+
+            percentocean = 0
+            sub_lat = np.linspace(currlatspan[0], currlatspan[1], subdiv+1)[0:subdiv] 
+            sub_lon = np.linspace(currlonspan[0], currlonspan[1], subdiv+1)[0:subdiv]
+
+            ind_n = np.where(sub_lon<-180)[0]
+            sub_lon[ind_n] = sub_lon[ind_n] + 360
+
+            ind_p = np.where(sub_lon>180)[0]
+            sub_lon[ind_p] = sub_lon[ind_p] - 360
+   
+            for ii in range(0, sub_lat.size):
+                for jj in range(0, sub_lon.size):
+
+                    if globe.is_ocean( sub_lat[ii], sub_lon[jj] ):
+                         percentocean+=1
+                    else:
+                         continue 
+
+            ## should be inside lat loop, inside lon loop                
+            percents[i, j] = percentocean
+
+    print('... done.')
+    return percents
+
+#####################################################################################################################################
+#####################################################################################################################################
+#####################################################################################################################################
+def get_landsea_mask(all_percents, perc_val=100, mtype='land', nn='yes'):
+    
+    """ all_percents: the 2-D numpy array of percent ocean at each grid point,
+        calculated by the "calculate_percent_ocean" function
+        per_val: the percentage and above of ocean or land you want to keep (the rest is masked out)
+        mtype='land', if mtype='sea' it will mask out according the percentage sea you want to keep rather than land
+       
+        nn='yes', if you want 1's and nans. if nn='no', you get 1's and 0's
+       
+        model='specifiy', meaning, send the all_percents data array yourself. 
+        ## you can also select model = 'mpi' or 'can', and the all_percents file of the respective model will be chosen for you. ##
+       
+        returns a 2-D (lat, lon) array of 1's and nans (or 0's) that you can apply to the original data field """
+    
+    
+    ## 'land' makes a land mask (keep land, mask out sea regions)
+    if mtype=='land':
+        all_percents = (100 - all_percents)
+    ## 'sea' makes a sea mask (keep sea, mask out land regions)
+    elif mtype=='sea':
+        all_percents = all_percents
+    
+    ## this line sets everything below the desired percent of land or percent of sea desired to 0.
+    ## for example, if you want to keep 80% land and up, everything below 70% land region will be set to 0. 
+    perc_mtype = (all_percents>=perc_val)*all_percents
+    
+    ## this line sets the remaining percents (ex, above 80%) to a value of 1. 
+    perc_mtype[perc_mtype>=perc_val]=1.
+    
+    ## this line sets the 0's to nans. If nn='no', it will leave them as 0's. 
+    if nn=='yes':
+        perc_mtype[perc_mtype==0.] = np.nan
+    #else: dont set 0 values to nan, leave them as 0
+    
+    ## return mask of 1's and nans (or 1's and 0's)
+    ## the mask is 2-D, same shape as lat/lon grid numpy array
+    return perc_mtype
 
 #####################################################################################################################################
 #####################################################################################################################################
@@ -470,50 +590,6 @@ def mask_for_available_obs(mod, obs, yrmo):
     
     else:
         return mod[yrmo].values
-    
-#####################################################################################################################################
-#####################################################################################################################################
-#####################################################################################################################################
-
-## < SKIP further documentation for now, come back to add after code is retested > 
-
-def get_landsea_mask(all_percents, perc_val=100, mtype='land', nn='yes'):
-    
-    """ all_percents: the 2-D numpy array of percent ocean at each grid point,
-        calculated by the "calculate_percent_ocean" function
-        per_val: the percentage and above of ocean or land you want to keep (the rest is masked out)
-        mtype='land', if mtype='sea' it will mask out according the percentage sea you want to keep rather than land
-       
-        nn='yes', if you want 1's and nans. if nn='no', you get 1's and 0's
-       
-        model='specifiy', meaning, send the all_percents data array yourself. 
-        ## you can also select model = 'mpi' or 'can', and the all_percents file of the respective model will be chosen for you. ##
-       
-        returns a 2-D (lat, lon) array of 1's and nans (or 0's) that you can apply to the original data field """
-    
-    
-    ## 'land' makes a land mask (keep land, mask out sea regions)
-    if mtype=='land':
-        all_percents = (100 - all_percents)
-    ## 'sea' makes a sea mask (keep sea, mask out land regions)
-    elif mtype=='sea':
-        all_percents = all_percents
-    
-    ## this line sets everything below the desired percent of land or percent of sea desired to 0.
-    ## for example, if you want to keep 80% land and up, everything below 70% land region will be set to 0. 
-    perc_mtype = (all_percents>=perc_val)*all_percents
-    
-    ## this line sets the remaining percents (ex, above 80%) to a value of 1. 
-    perc_mtype[perc_mtype>=perc_val]=1.
-    
-    ## this line sets the 0's to nans. If nn='no', it will leave them as 0's. 
-    if nn=='yes':
-        perc_mtype[perc_mtype==0.] = np.nan
-    #else: dont set 0 values to nan, leave them as 0
-    
-    ## return mask of 1's and nans (or 1's and 0's)
-    ## the mask is 2-D, same shape as lat/lon grid numpy array
-    return perc_mtype
 
 
 #####################################################################################################################################
