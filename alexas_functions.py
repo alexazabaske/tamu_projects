@@ -363,19 +363,29 @@ def uniform_coords(dataset, old_label_list=None, new_label_list=['lat','lon']):
 #####################################################################################################################################
 #####################################################################################################################################
 def calculate_percent_ocean_gridded(da, subdiv=10):
-    """ PURPOSE: 
-        da
-        subdiv=10: """
-    
-    ##da is xarray dataset
-    lat = da[lat_var].values
-    lon = da[lon_var].values
+    """ PURPOSE: Calculate the percent of each grid box is ocean. 
+        100% the entire gridbox is contains ocea, and 0% implies it is an entirely land grid box. 
+        Taking the native lat,lon resolution from the xarray dataset, the code subdivides each grid box, 
+        to determine the percentage of ocean area in each grid cell. 
         
-    #print(lon)
+        da (xr.Dataset): A gridded dataset (lat,lon) to calculate the percent % ocean mask for
+        subdiv (int): subdivide the latitude longitude into this many subdivisions. 
+        the default is 10, so it will greate 100 sub-gridboxes"""
+    
+    ## link: https://pypi.org/project/global-land-mask/
+    from global_land_mask import globe
+    
+    try:
+        lat = da['lat'].values
+        lon = da['lon'].values
+    except: 
+        print("dataset does not have coordinates labeled 'lat' or 'lon'. send to alexas_functions.uniform_coords()")
+        
+    ## for looping through the grid size of the data set 
     irange = range(0,lat.size)
     jrange = range(0,lon.size)
 
-    ## initializing the mask for percentage ocean at each gridd point
+    ## initializing the mask for percentage ocean at each grid point
     percents = np.zeros((lat.size, lon.size))
     
     ## latitude loop
@@ -385,44 +395,59 @@ def calculate_percent_ocean_gridded(da, subdiv=10):
     print('current latitude:')
     ##### ----- LAT LOOP 
     for i in irange:
-        currlat1 = lat[i] 
+        currlat1 = lat[i] ## current latitude value in the loop
         print(round(currlat1,5), end=',  ')
 
         ## if not the last latitude
         if currlat1==lat[lat.size-1]:
             lat_incr = (-lat[i] + lat[i-1])
         else:
+            ## calculate the correct increment by switching signs
             lat_incr = (lat[i] - lat[i+1])
-            
         lat_incr12 = abs(lat_incr/2)
+        
+        ## Find the edges (1/2 a latitude increment on either side) of the latitude box
         currlatspan = (lat[i]) - lat_incr12, (lat[i]) + lat_incr12
 
+        
         ##### ----- LON LOOP 
         for j in jrange:
-
-            currlon1 = lon[j]
+            currlon1 = lon[j] ## current longitude in the loop
+            
+            ## if not the last longitude in the lopo
             if currlon1==lon[lon.size-1]:
                 lon_incr = (-lon[j] + lon[j-1])          
             else: 
+                ## calculate the correct increment by switching signs
                 lon_incr = (lon[j] - lon[j+1])
                 
             lon_incr12 = abs(lon_incr/2)
+            ## Find the edges (1/2 of a longitude increment on either side) of the gridbox
             currlonspan = (lon[j]) - lon_incr12, (lon[j]) + lon_incr12 
 
-
+            ## INITialze the % ocean for this grid box 
             percentocean = 0
+            
+            ## Get the values for 10 latiude sub divisions
             sub_lat = np.linspace(currlatspan[0], currlatspan[1], subdiv+1)[0:subdiv] 
+            ## Get the values for 10 longitude sub divisions
             sub_lon = np.linspace(currlonspan[0], currlonspan[1], subdiv+1)[0:subdiv]
-
+            
+            ## correct for the end points, where it switches from -180 to 180 degrees longitude
+            ## the reason for this is because the 'globe.is_ocean(lat, lon)' command requires the bounds to be -180 to 180 lon
+            ## anything below -180 is corrected
             ind_n = np.where(sub_lon<-180)[0]
             sub_lon[ind_n] = sub_lon[ind_n] + 360
-
+            ## anything above 180 is corrected 
             ind_p = np.where(sub_lon>180)[0]
             sub_lon[ind_p] = sub_lon[ind_p] - 360
-   
+            
+            ### --- BEGIN SUB_LAT Loop 
             for ii in range(0, sub_lat.size):
+                ### --- BEGIN SUB_LON Loop
                 for jj in range(0, sub_lon.size):
 
+                    ## using the globe library, check if the sub latlon box is over ocean
                     if globe.is_ocean( sub_lat[ii], sub_lon[jj] ):
                          percentocean+=1
                     else:
@@ -430,7 +455,12 @@ def calculate_percent_ocean_gridded(da, subdiv=10):
 
             ## should be inside lat loop, inside lon loop                
             percents[i, j] = percentocean
-
+            
+    if subsiv != 10:
+        ## Normalize the ocean % percent mask to be 0% to 100%
+        percents = ( percents/(subdiv**2) )*100
+    
+    ## return a 2-D (lat, lon) numpy array, containing the percentage of ocean for each grid box of the input dataset 
     print('... done.')
     return percents
 
@@ -439,8 +469,12 @@ def calculate_percent_ocean_gridded(da, subdiv=10):
 #####################################################################################################################################
 def get_landsea_mask(all_percents, perc_val=100, mtype='land', nn='yes'):
     
-    """ all_percents: the 2-D numpy array of percent ocean at each grid point,
-        calculated by the "calculate_percent_ocean" function
+    """ PURPOSE: To get an applicable land or sea mask for a dataset. First, use the calculate_percent_ocean_gridded() function 
+        to get the % ocean at each grid point fo the dataset. The output from that function is the input argument 'all_percents'
+        for this function
+    
+        all_percents(np.array): the 2-D numpy array of percent ocean at each grid point, 
+        calculated by the "calculate_percent_ocean_gridded" function
         per_val: the percentage and above of ocean or land you want to keep (the rest is masked out)
         mtype='land', if mtype='sea' it will mask out according the percentage sea you want to keep rather than land
        
@@ -509,6 +543,7 @@ def zonal_avg(idata, slice_begin, slice_end):
     ## average the data latitudinally, with the cosine weights applied  
     Zavg=np.sum(idata2*cosweight, axis=1)/np.sum(cosweight)
     
+    ## return the Zonal average (averaged over the input latitude range and all longitudes)
     return Zavg
 
 #####################################################################################################################################
@@ -519,8 +554,8 @@ def Fourier_Analysis(diff):
     """ PURPOSE: Calculate the annual Fourier coeficients (n=1), as well as phase and amplitude calculated from these coefficents
         diff (np.array): a numpy array of 12 values, each representing a monthly mean value. 
         
-        returns: fourlist (np.array): a list of seven values 
-        fourlist = [amplitude, phase (radians), phase (degrees -180to180), phase (degrees 0to360), a0, a1, b1] """
+        returns: fourlist (np.array): a list of seven values; 
+            fourlist = [amplitude, phase (radians), phase (degrees -180to180), phase (degrees 0to360), a0, a1, b1] """
         
     ## input of 12 points (annual cycle of monthly mean temperature differences)
     ## each month represents 1/12th of the 2pi period
