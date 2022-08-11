@@ -324,6 +324,36 @@ def set_new_time_variable(da_, gen, exp='historical'):
     
     ## return the entire xarray dataset, with the updated and trimmed time series index
     return da_
+#####################################################################################################################################
+#####################################################################################################################################
+#####################################################################################################################################
+def uniform_coords(dataset, old_label_list=None, new_label_list=['lat','lon']):
+    """ PURPOSE: rename coordinates in an xarray dataset to common name, set it -180 to 180 longitude  
+        dataset (xr.Dataset): the dataset with coordinate names to be changed 
+        old_label_list: list of the coordinate names in the dataset (example: ['latitude', 'longitude']) 
+        new_label_list: list of the new names for the coordinates (example: ['lat', 'lon']
+        
+        returns the dataset, but with the new names for the coordinates """
+    
+    ## if a list is sent in to be changed to ['lat','lon'], or something else, as long as the two lists are the same lenghth 
+    if old_label_list != None:
+        if len(old_label_list) == len(new_label_list):
+            ## rename the coordinates 
+            for i in range(len(old_label_list)):
+                dataset = dataset.rename({old_label_list[i]: new_label_list[i]})
+        ## print an error message
+        else:
+            print(' len(old_label_list) == len(new_label_list) needs to be true, currently it is not. ')
+    
+    ## if data span from 0 to 360, instead of -180 to 180, switch to be -180 to 180
+    if np.max(dataset['lon'].values) > 180. or np.min(dataset['lon']) <-180.:
+        dataset = dataset.assign_coords({'lon': np.sort(((dataset.lon + 180) % 360) - 180)})
+        
+    ## this ensures that the longitudes are monotonically increasing (-180 to 180)     
+    dataset = dataset.sortby("lon")    
+    
+
+    return dataset
 
 #####################################################################################################################################
 #####################################################################################################################################
@@ -415,6 +445,35 @@ def Fourier_Analysis(diff):
 #####################################################################################################################################
 #####################################################################################################################################
 #####################################################################################################################################
+def mask_for_available_obs(mod, obs, yrmo):
+    
+    # find closest obs lats/lons to the model lats/lons
+    mod_obslats = [np.argmin(np.abs(x-obs.lat.values)) for x in mod.lat.values]
+    mod_obslons = [np.argmin(np.abs(x-obs.lon.values)) for x in mod.lon.values]
+    
+    if mod.time.values[yrmo] in obs.time.values:
+
+        # convert to numpy arrays to run faster
+        obs_data_yrmo = obs.sel(time=str(mod.time.values[yrmo])).values
+        mod_data_yrmo = mod[yrmo].values
+        print(mod.time.values[yrmo])
+
+        # nuke all model data for which the nearest obs are missing
+        for ilat in range(mod.sizes['lat']):
+            for ilon in range(mod.sizes['lon']):
+                if np.isnan(obs_data_yrmo[ mod_obslats[ilat],mod_obslons[ilon] ]):
+                    mod_data_yrmo[ilat,ilon] = np.nan 
+                else:
+                    continue
+                    
+        return mod_data_yrmo
+    
+    else:
+        return mod[yrmo].values
+    
+#####################################################################################################################################
+#####################################################################################################################################
+#####################################################################################################################################
 
 ## < SKIP further documentation for now, come back to add after code is retested > 
 
@@ -455,6 +514,7 @@ def get_landsea_mask(all_percents, perc_val=100, mtype='land', nn='yes'):
     ## return mask of 1's and nans (or 1's and 0's)
     ## the mask is 2-D, same shape as lat/lon grid numpy array
     return perc_mtype
+
 
 #####################################################################################################################################
 #####################################################################################################################################
@@ -785,28 +845,6 @@ def open_pickle_data(fname):
 
 # print(a==b)
 ################################################
-#####################################################################################################################################
-#####################################################################################################################################
-#####################################################################################################################################
-def uniform_coords(dataset, old_label_list, new_label_list):
-    """ PURPOSE: rename coordinates in an xarray dataset 
-        dataset (xr.Dataset): the dataset with coordinate names to be changed 
-        old_label_list: list of the coordinate names in the dataset (example: ['latitude', 'longitude']) 
-        new_label_list: list of the new names for the coordinates (example: ['lat', 'lon']
-        
-        returns the dataset, but with the new names for the coordinates """
-    
-    if len(old_label_list) == len(new_label_list):
-        
-        for i in range(len(old_label_list)):
-            #if old_label_list[i] in data_array.indexes.keys(): ##commenting this out.. I don't I need this line
-            
-            dataset = dataset.rename({old_label_list[i]: new_label_list[i]})
-    else:
-        print(' len(old_label_list) == len(new_label_list) needs to be true, currently it is not. ')
-    
-    return dataset
-
 #####################################################################################################################################
 #####################################################################################################################################
 #####################################################################################################################################
