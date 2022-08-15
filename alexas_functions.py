@@ -3,16 +3,10 @@
 
 import numpy as np
 import xarray as xr
-import pickle
 import pandas as pd
 
 ## used by get_PC_components
 from sklearn.decomposition import PCA
-## used by set new_time_variable
-import datetime
-from dateutil.relativedelta import relativedelta
-## used by Fourier_Analysis
-import math 
 
 #############################################################
 ep = [-10, 10, 160, 280] 
@@ -267,7 +261,8 @@ def set_new_time_variable(da_, gen, exp='historical'):
         exp (str): the cmip experiment name
     
         returns the same dataset that was inputted but with the redefined time index """
-
+    import datetime
+    from dateutil.relativedelta import relativedelta
     ### DETERMINE THE START AND END YEAR AND MONTHS BASED ON THE INPUT DATA 
     
     try: ## this first try works for most datetime objects to extract the year and month
@@ -456,7 +451,7 @@ def calculate_percent_ocean_gridded(da, subdiv=10):
             ## should be inside lat loop, inside lon loop                
             percents[i, j] = percentocean
             
-    if subsiv != 10:
+    if subdiv != 10:
         ## Normalize the ocean % percent mask to be 0% to 100%
         percents = ( percents/(subdiv**2) )*100
     
@@ -556,7 +551,9 @@ def Fourier_Analysis(diff):
         
         returns: fourlist (np.array): a list of seven values; 
             fourlist = [amplitude, phase (radians), phase (degrees -180to180), phase (degrees 0to360), a0, a1, b1] """
-        
+    
+    import math 
+    
     ## input of 12 points (annual cycle of monthly mean temperature differences)
     ## each month represents 1/12th of the 2pi period
     p = math.pi/12
@@ -600,32 +597,41 @@ def Fourier_Analysis(diff):
 #####################################################################################################################################
 #####################################################################################################################################
 #####################################################################################################################################
-def mask_for_available_obs(mod, obs, yrmo):
-    
+def mask_for_available_obs(mod, obs):
+    """ """
     # find closest obs lats/lons to the model lats/lons
     mod_obslats = [np.argmin(np.abs(x-obs.lat.values)) for x in mod.lat.values]
     mod_obslons = [np.argmin(np.abs(x-obs.lon.values)) for x in mod.lon.values]
     
-    if mod.time.values[yrmo] in obs.time.values:
-
-        # convert to numpy arrays to run faster
-        obs_data_yrmo = obs.sel(time=str(mod.time.values[yrmo])).values
-        mod_data_yrmo = mod[yrmo].values
-        print(mod.time.values[yrmo])
-
-        # nuke all model data for which the nearest obs are missing
-        for ilat in range(mod.sizes['lat']):
-            for ilon in range(mod.sizes['lon']):
-                if np.isnan(obs_data_yrmo[ mod_obslats[ilat],mod_obslons[ilon] ]):
-                    mod_data_yrmo[ilat,ilon] = np.nan 
-                else:
-                    continue
-                    
-        return mod_data_yrmo
+    obs_times= obs.time.values
+    mod_times= mod.time.values
     
-    else:
-        return mod[yrmo].values
+    mod_obs_masked = np.zeros(mod.shape)
+    
+    for yrmo in range(len(mod_times)):
+        if mod_times[yrmo] in obs_times:
 
+            print(mod_times[yrmo])
+     
+            # convert to numpy arrays to run faster
+            obs_data_yrmo = obs.sel(time=str(mod_times[yrmo])).values
+            mod_data_yrmo = mod[yrmo].values
+            
+
+            # nuke all model data for which the nearest obs are missing
+            for ilat in range(mod.sizes['lat']):
+                for ilon in range(mod.sizes['lon']):
+                    if np.isnan(obs_data_yrmo[ mod_obslats[ilat],mod_obslons[ilon] ]):
+                        mod_data_yrmo[ilat,ilon] = np.nan 
+                    else:
+                        continue
+
+            mod_obs_masked[yrmo] = mod_data_yrmo
+
+        else:
+            mod_obs_masked[yrmo] = mod[yrmo].values
+                
+    return mod_obs_masked
 
 #####################################################################################################################################
 #####################################################################################################################################
@@ -925,11 +931,9 @@ def cc_ev(data1, data2):
 #####################################################################################################################################
 ## this function saves the variable into a file that you can open later
 def dump_into_pickle(fname, datatodump):
-    """
-    fname is the name of the file where to save the variable. it should be a string. add '.pkl' as the extension
-    datatodump is anything. a list, numpy array, a float, an xarray dataset. 
-    """
-    
+    """ fname is the name of the file where to save the variable. it should be a string. add '.pkl' as the extension
+    datatodump is anything. a list, numpy array, a float, an xarray dataset. """
+    import pickle
     ## this dumps the variable into the file
     with open(fname, 'wb') as handle:
         pickle.dump(datatodump, handle, protocol=pickle.HIGHEST_PROTOCOL)
@@ -939,6 +943,8 @@ def dump_into_pickle(fname, datatodump):
 ## this is how to open the data into the pickle file
 def open_pickle_data(fname):
     """fname is the name (string) of the pickle file where the variable is stored"""
+    import pickle
+    
     datatoopen = pickle.load( open(fname,  'rb') )
     
     ## return the data 
